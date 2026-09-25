@@ -1,19 +1,53 @@
 from datetime import datetime, timedelta
+import os
 
 import ee
+from google.oauth2 import service_account
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models.farm import Farm
 
+
 router = APIRouter(prefix="/satellite", tags=["Satellite"])
 
 PROJECT_ID = "krishisetu-509305"
 
-# Earth Engine uses the ADC credentials configured earlier.
-ee.Initialize(project=PROJECT_ID)
 
+# ============================================================
+# EARTH ENGINE AUTHENTICATION
+# ============================================================
+
+credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+if not credentials_path:
+    raise RuntimeError(
+        "GOOGLE_APPLICATION_CREDENTIALS environment variable is not set."
+    )
+
+if not os.path.exists(credentials_path):
+    raise RuntimeError(
+        f"Google service account file not found: {credentials_path}"
+    )
+
+credentials = service_account.Credentials.from_service_account_file(
+    credentials_path,
+    scopes=[
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/earthengine",
+    ],
+)
+
+ee.Initialize(
+    credentials=credentials,
+    project=PROJECT_ID,
+)
+
+
+# ============================================================
+# CLOUD MASK
+# ============================================================
 
 def mask_s2_clouds(image):
     qa = image.select("QA60")
@@ -29,7 +63,15 @@ def mask_s2_clouds(image):
     return image.updateMask(mask)
 
 
-def get_ndvi_tile_url(latitude: float, longitude: float, days: int = 60):
+# ============================================================
+# NDVI TILE URL
+# ============================================================
+
+def get_ndvi_tile_url(
+    latitude: float,
+    longitude: float,
+    days: int = 60,
+):
     end_date = datetime.utcnow().date()
     start_date = end_date - timedelta(days=days)
 
@@ -45,7 +87,10 @@ def get_ndvi_tile_url(latitude: float, longitude: float, days: int = 60):
             str(end_date + timedelta(days=1)),
         )
         .filter(
-            ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 40)
+            ee.Filter.lt(
+                "CLOUDY_PIXEL_PERCENTAGE",
+                40,
+            )
         )
         .map(mask_s2_clouds)
     )
@@ -82,13 +127,25 @@ def get_ndvi_tile_url(latitude: float, longitude: float, days: int = 60):
     }
 
 
+# ============================================================
+# SATELLITE FARM DATA
+# ============================================================
+
 @router.get("/farm/{farm_id}")
 def satellite_farm_data(
     farm_id: int,
-    days: int = Query(60, ge=7, le=180),
+    days: int = Query(
+        60,
+        ge=7,
+        le=180,
+    ),
     db: Session = Depends(get_db),
 ):
-    farm = db.query(Farm).filter(Farm.id == farm_id).first()
+    farm = (
+        db.query(Farm)
+        .filter(Farm.id == farm_id)
+        .first()
+    )
 
     if not farm:
         raise HTTPException(
@@ -96,7 +153,10 @@ def satellite_farm_data(
             detail="Farm not found",
         )
 
-    if farm.latitude is None or farm.longitude is None:
+    if (
+        farm.latitude is None
+        or farm.longitude is None
+    ):
         raise HTTPException(
             status_code=400,
             detail="Farm does not have valid GPS coordinates",
@@ -114,19 +174,28 @@ def satellite_farm_data(
         start_date = end_date - timedelta(days=days)
 
         collection = (
-            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            ee.ImageCollection(
+                "COPERNICUS/S2_SR_HARMONIZED"
+            )
             .filterBounds(region)
             .filterDate(
                 str(start_date),
                 str(end_date + timedelta(days=1)),
             )
             .filter(
-                ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 40)
+                ee.Filter.lt(
+                    "CLOUDY_PIXEL_PERCENTAGE",
+                    40,
+                )
             )
             .map(mask_s2_clouds)
         )
 
         image_count = collection.size().getInfo()
+
+        # ----------------------------------------------------
+        # NO IMAGE
+        # ----------------------------------------------------
 
         if image_count == 0:
             return {
@@ -146,20 +215,42 @@ def satellite_farm_data(
                 "dataset": "Sentinel-2 SR Harmonized",
             }
 
-        latest_image = collection.sort(
-            "system:time_start",
-            False,
-        ).first()
+        # ----------------------------------------------------
+        # LATEST IMAGE
+        # ----------------------------------------------------
 
-        latest_date = ee.Date(
-            latest_image.get("system:time_start")
-        ).format("YYYY-MM-dd").getInfo()
+        latest_image = (
+            collection
+            .sort(
+                "system:time_start",
+                False,
+            )
+            .first()
+        )
+
+        latest_date = (
+            ee.Date(
+                latest_image.get(
+                    "system:time_start"
+                )
+            )
+            .format("YYYY-MM-dd")
+            .getInfo()
+        )
+
+        # ----------------------------------------------------
+        # NDVI
+        # ----------------------------------------------------
 
         composite = collection.median()
 
-        ndvi = composite.normalizedDifference(
-            ["B8", "B4"]
-        ).rename("NDVI")
+        ndvi = (
+            composite
+            .normalizedDifference(
+                ["B8", "B4"]
+            )
+            .rename("NDVI")
+        )
 
         stats = ndvi.reduceRegion(
             reducer=ee.Reducer.mean(),
@@ -170,6 +261,10 @@ def satellite_farm_data(
 
         ndvi_value = stats.get("NDVI")
 
+        # ----------------------------------------------------
+        # NDVI NOT AVAILABLE
+        # ----------------------------------------------------
+
         if ndvi_value is None:
             return {
                 "farm_id": farm.id,
@@ -178,28 +273,49 @@ def satellite_farm_data(
                 "latitude": latitude,
                 "longitude": longitude,
                 "analysis_available": False,
-                "message": "NDVI could not be calculated for this area.",
+                "message": (
+                    "NDVI could not be calculated "
+                    "for this area."
+                ),
                 "image_count": image_count,
                 "provider": "Google Earth Engine",
                 "dataset": "Sentinel-2 SR Harmonized",
             }
 
-        ndvi_value = round(float(ndvi_value), 3)
+        ndvi_value = round(
+            float(ndvi_value),
+            3,
+        )
+
+        # ----------------------------------------------------
+        # CROP HEALTH
+        # ----------------------------------------------------
 
         if ndvi_value >= 0.60:
             health = "Healthy"
+
         elif ndvi_value >= 0.35:
             health = "Moderate"
+
         elif ndvi_value >= 0.15:
             health = "Stressed"
+
         else:
             health = "Very Low Vegetation"
+
+        # ----------------------------------------------------
+        # NDVI MAP TILE
+        # ----------------------------------------------------
 
         tile_data = get_ndvi_tile_url(
             latitude,
             longitude,
             days,
         )
+
+        # ----------------------------------------------------
+        # RESPONSE
+        # ----------------------------------------------------
 
         return {
             "farm_id": farm.id,
@@ -221,10 +337,13 @@ def satellite_farm_data(
                 if tile_data
                 else None
             ),
-            "message": "Real Sentinel-2 NDVI analysis completed.",
+            "message": (
+                "Real Sentinel-2 NDVI analysis completed."
+            ),
         }
 
     except Exception as e:
+
         print(
             "Earth Engine Satellite Error:",
             repr(e),
