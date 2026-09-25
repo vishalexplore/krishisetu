@@ -17,7 +17,7 @@ import {
 
 import { useLanguage } from "../i18n/LanguageContext";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://krishisetu-kb9p.onrender.com";
 
 function Advisor() {
   const { language } = useLanguage();

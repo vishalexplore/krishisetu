@@ -16,7 +16,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "../i18n/LanguageContext";
 
-const API = "http://127.0.0.1:8000";
+const API = "https://krishisetu-kb9p.onrender.com";
 
 function Soil() {
   const { language } = useLanguage();

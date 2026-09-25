@@ -6,7 +6,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://krishisetu-kb9p.onrender.com";
 
 function NDVIMap({ farm }) {
   if (!farm?.analysis_available || !farm?.ndvi_tile_url) {

@@ -43,7 +43,7 @@ function Farm() {
     const loadFarm = async () => {
       try {
         const response = await fetch(
-          "http://127.0.0.1:8000/farms/"
+          "https://krishisetu-kb9p.onrender.com/farms/"
         );
 
         if (!response.ok) {
@@ -135,7 +135,7 @@ function Farm() {
       setSaving(true);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/farms/",
+        "https://krishisetu-kb9p.onrender.com/farms/",
         {
           method: "POST",
           headers: {
