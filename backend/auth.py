@@ -22,7 +22,8 @@ def get_current_user(authorization: str = Header(None)):
     try:
         decoded_token = auth.verify_id_token(token)
         return decoded_token
-    except Exception:
+    except Exception as error:
+        print("FIREBASE VERIFY ERROR:", repr(error))
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired token"
