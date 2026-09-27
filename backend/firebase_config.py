@@ -8,18 +8,13 @@ from firebase_admin import credentials
 if not firebase_admin._apps:
     firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
 
-    if firebase_json:
-        try:
-            service_account_info = json.loads(firebase_json)
+    if not firebase_json:
+        raise RuntimeError(
+            "FIREBASE_SERVICE_ACCOUNT_JSON is not set"
+        )
 
-            cred = credentials.Certificate(service_account_info)
+    service_account_info = json.loads(firebase_json)
 
-            firebase_admin.initialize_app(cred)
+    cred = credentials.Certificate(service_account_info)
 
-        except Exception as error:
-            print("Firebase Admin initialization failed:", error)
-            raise
-
-    else:
-        # Local development fallback
-        firebase_admin.initialize_app()
+    firebase_admin.initialize_app(cred)
