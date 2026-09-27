@@ -5,6 +5,7 @@ from google.cloud import bigquery
 from database import get_db
 from models.farm import Farm
 from schemas import FarmCreate, FarmResponse
+from auth import get_current_user
 
 
 router = APIRouter(
@@ -80,9 +81,13 @@ def sync_farm_to_bigquery(farm):
 @router.post("/", response_model=FarmResponse)
 def create_farm(
     farm_data: FarmCreate,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    firebase_uid = current_user["uid"]
+
     farm = Farm(
+        firebase_uid=firebase_uid,
         name=farm_data.name,
         crop=farm_data.crop,
         area_acres=farm_data.area_acres,
@@ -95,7 +100,6 @@ def create_farm(
     db.commit()
     db.refresh(farm)
 
-    # PostgreSQL → BigQuery
     try:
         sync_farm_to_bigquery(farm)
     except Exception as error:
@@ -105,26 +109,44 @@ def create_farm(
 
 
 # --------------------------------------------------
-# GET ALL FARMS
+# GET MY FARMS
 # --------------------------------------------------
 
 @router.get("/", response_model=list[FarmResponse])
 def get_farms(
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(Farm).order_by(Farm.id.desc()).all()
+    firebase_uid = current_user["uid"]
+
+    return (
+        db.query(Farm)
+        .filter(Farm.firebase_uid == firebase_uid)
+        .order_by(Farm.id.desc())
+        .all()
+    )
 
 
 # --------------------------------------------------
-# GET SINGLE FARM
+# GET MY SINGLE FARM
 # --------------------------------------------------
 
 @router.get("/{farm_id}", response_model=FarmResponse)
 def get_farm(
     farm_id: int,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    farm = db.query(Farm).filter(Farm.id == farm_id).first()
+    firebase_uid = current_user["uid"]
+
+    farm = (
+        db.query(Farm)
+        .filter(
+            Farm.id == farm_id,
+            Farm.firebase_uid == firebase_uid,
+        )
+        .first()
+    )
 
     if not farm:
         raise HTTPException(

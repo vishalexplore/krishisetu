@@ -4,8 +4,12 @@ from google.cloud import bigquery
 
 from database import get_db
 from models.soil import SoilTest
+from models.farm import Farm
+from auth import get_current_user
+
 
 router = APIRouter(prefix="/soil", tags=["Soil"])
+
 
 BQ_PROJECT = "krishisetu-509305"
 BQ_DATASET = "krishisetu"
@@ -32,7 +36,6 @@ def sync_soil_to_bigquery(soil_test):
         ),
     }
 
-    # Remove old copy if it already exists
     query = f"""
         DELETE FROM `{table_id}`
         WHERE id = @soil_id
@@ -53,7 +56,6 @@ def sync_soil_to_bigquery(soil_test):
         job_config=job_config,
     ).result()
 
-    # Insert latest data
     load_config = bigquery.LoadJobConfig(
         write_disposition="WRITE_APPEND",
     )
@@ -76,8 +78,27 @@ def create_soil_test(
     phosphorus: float | None = None,
     potassium: float | None = None,
     organic_carbon: float | None = None,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    firebase_uid = current_user["uid"]
+
+    # Check that this farm belongs to the logged-in user
+    farm = (
+        db.query(Farm)
+        .filter(
+            Farm.id == farm_id,
+            Farm.firebase_uid == firebase_uid,
+        )
+        .first()
+    )
+
+    if not farm:
+        raise HTTPException(
+            status_code=404,
+            detail="Farm not found",
+        )
+
     soil_test = SoilTest(
         farm_id=farm_id,
         ph=ph,
@@ -88,12 +109,10 @@ def create_soil_test(
         organic_carbon=organic_carbon,
     )
 
-    # Save to PostgreSQL
     db.add(soil_test)
     db.commit()
     db.refresh(soil_test)
 
-    # Sync to BigQuery
     try:
         sync_soil_to_bigquery(soil_test)
     except Exception as error:
@@ -105,8 +124,27 @@ def create_soil_test(
 @router.get("/{farm_id}")
 def get_soil_test(
     farm_id: int,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    firebase_uid = current_user["uid"]
+
+    # Check that this farm belongs to the logged-in user
+    farm = (
+        db.query(Farm)
+        .filter(
+            Farm.id == farm_id,
+            Farm.firebase_uid == firebase_uid,
+        )
+        .first()
+    )
+
+    if not farm:
+        raise HTTPException(
+            status_code=404,
+            detail="Farm not found",
+        )
+
     soil_test = (
         db.query(SoilTest)
         .filter(SoilTest.farm_id == farm_id)

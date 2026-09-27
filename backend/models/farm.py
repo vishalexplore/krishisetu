@@ -11,6 +11,13 @@ class Farm(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
+    # Firebase user who owns this farm
+    firebase_uid: Mapped[str] = mapped_column(
+        String(128),
+        index=True,
+        nullable=True,
+    )
+
     name: Mapped[str] = mapped_column(
         String(150),
         nullable=False
@@ -21,6 +28,7 @@ class Farm(Base):
         nullable=False
     )
 
+    # Always stored internally in acres
     area_acres: Mapped[float] = mapped_column(
         Float,
         nullable=False

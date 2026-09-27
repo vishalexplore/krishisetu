@@ -29,13 +29,16 @@ import {
   CircleHelp,
   Plus,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useLanguage } from "../i18n/LanguageContext";
+import { useAuth } from "../auth/AuthContext";
 
 const API_BASE = "https://krishisetu-kb9p.onrender.com";
 
 function Profile() {
   const { language, setLanguage } = useLanguage();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const hi = language === "hi";
 
   const [profile, setProfile] = useState({
@@ -56,13 +59,16 @@ function Profile() {
   const [weatherAlerts, setWeatherAlerts] = useState(true);
   const [farmAlerts, setFarmAlerts] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [liveLocation, setLiveLocation] = useState({ latitude: null, longitude: null });
+  const locationWatchRef = useRef(null);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
   const [message, setMessage] = useState("");
 
   const [profilePhoto, setProfilePhoto] = useState(
     () =>
-      localStorage.getItem("krishisetu-profile-photo") || ""
+      (user ? localStorage.getItem(`krishisetu-profile-photo-${user.uid}`) : "") || ""
   );
 
   const [documents, setDocuments] = useState({
@@ -77,6 +83,14 @@ function Profile() {
     fasalBima: "pending",
     kcc: "pending",
   });
+
+ useEffect(() => {
+  return () => {
+    if (locationWatchRef.current !== null) {
+      navigator.geolocation?.clearWatch(locationWatchRef.current);
+    }
+  };
+}, []);
 
  useEffect(() => {
   fetchProfile();
@@ -123,7 +137,7 @@ function Profile() {
     "dark-mode",
     enabled
   );
-}, []);
+}, [user]);
 
 useEffect(() => {
   localStorage.setItem(
@@ -168,7 +182,16 @@ function toggleDarkMode(value) {
     try {
       setProfileLoading(true);
 
-      const response = await fetch(`${API_BASE}/profile/`);
+      if (!user) return;
+
+      const token = await user.getIdToken();
+
+      const response = await fetch(`${API_BASE}/profile/`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
 
       if (!response.ok) {
         throw new Error("Unable to fetch profile");
@@ -182,15 +205,12 @@ function toggleDarkMode(value) {
         village: data.village || "",
         district: data.district || "",
         state: data.state || "Uttar Pradesh",
-        email: data.email || "",
+        email: data.email || user.email || "",
       });
     } catch (error) {
       console.error("Profile fetch error:", error);
-
       showMessage(
-        hi
-          ? "प्रोफ़ाइल लोड नहीं हो सकी"
-          : "Unable to load profile"
+        hi ? "प्रोफ़ाइल लोड नहीं हो सकी" : "Unable to load profile"
       );
     } finally {
       setProfileLoading(false);
@@ -218,6 +238,7 @@ function toggleDarkMode(value) {
 
   async function saveProfile() {
     try {
+      if (!user) return;
       setProfileSaving(true);
 
       const params = new URLSearchParams();
@@ -253,6 +274,7 @@ function toggleDarkMode(value) {
         {
           method: "PUT",
           headers: {
+            Authorization: `Bearer ${await user.getIdToken()}`,
             Accept: "application/json",
           },
         }
@@ -348,10 +370,9 @@ function toggleDarkMode(value) {
 
       setProfilePhoto(result);
 
-      localStorage.setItem(
-        "krishisetu-profile-photo",
-        result
-      );
+      if (user) {
+        localStorage.setItem(`krishisetu-profile-photo-${user.uid}`, result);
+      }
 
       showMessage(
         hi
@@ -368,9 +389,9 @@ function toggleDarkMode(value) {
   function removeProfilePhoto() {
     setProfilePhoto("");
 
-    localStorage.removeItem(
-      "krishisetu-profile-photo"
-    );
+    if (user) {
+      localStorage.removeItem(`krishisetu-profile-photo-${user.uid}`);
+    }
 
     showMessage(
       hi
@@ -456,23 +477,24 @@ function toggleDarkMode(value) {
           ? "आपके ब्राउज़र में location उपलब्ध नहीं है"
           : "Location is not available in your browser"
       );
-
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      () => {
+    if (locationWatchRef.current !== null) {
+      navigator.geolocation.clearWatch(locationWatchRef.current);
+    }
+
+    locationWatchRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+
+        setLiveLocation({ latitude, longitude });
         setLocationEnabled(true);
-
-        showMessage(
-          hi
-            ? "Location permission मिल गई"
-            : "Location permission granted"
-        );
       },
-      () => {
+      (error) => {
+        console.error("Location error:", error);
         setLocationEnabled(false);
-
         showMessage(
           hi
             ? "Location permission नहीं मिली"
@@ -481,26 +503,30 @@ function toggleDarkMode(value) {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
+        timeout: 15000,
+        maximumAge: 0,
       }
     );
+
+    showMessage(hi ? "Live GPS शुरू हो गया" : "Live GPS started");
   }
 
   function toggleDarkMode(value) {
     setDarkMode(value);
-
-    document.documentElement.classList.toggle(
-      "dark",
-      value
-    );
+    localStorage.setItem("krishisetu-dark-mode", String(value));
+    document.documentElement.classList.toggle("dark", value);
+    document.documentElement.classList.toggle("dark-mode", value);
+    document.body.classList.toggle("dark-mode", value);
   }
 
-  function logout() {
-    showMessage(
-      hi
-        ? "Logout feature अभी तैयार नहीं है"
-        : "Logout feature is not connected yet"
-    );
+  async function handleLogout() {
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (error) {
+      console.error("Logout error:", error);
+      showMessage(hi ? "Logout नहीं हो सका" : "Unable to logout");
+    }
   }
 
   const primaryFarm = farms[0];
@@ -523,7 +549,7 @@ function toggleDarkMode(value) {
     primaryFarm?.sowing_date || null;
 
   return (
-    <div className="mx-auto w-full max-w-[1180px] min-w-0 space-y-6 overflow-x-hidden pb-8">
+    <div className={`mx-auto w-full max-w-[1180px] min-w-0 space-y-6 overflow-x-hidden pb-8 ${darkMode ? "dark-profile" : ""}`}>
 
       {message && (
         <div className="fixed right-4 top-20 z-[100] flex items-center gap-2 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-xs font-semibold text-emerald-700 shadow-xl">
@@ -933,6 +959,11 @@ function toggleDarkMode(value) {
                   <p className="mt-1 text-[11px] text-slate-400">
                     {location}
                   </p>
+                  {liveLocation.latitude !== null && (
+                    <p className="mt-1 text-[10px] font-semibold text-emerald-600">
+                      {hi ? "Live GPS" : "Live GPS"}: {liveLocation.latitude.toFixed(6)}, {liveLocation.longitude.toFixed(6)}
+                    </p>
+                  )}
 
                 </div>
 
@@ -1516,6 +1547,15 @@ function toggleDarkMode(value) {
                   : "Account and data security"
               }
               iconClass="bg-emerald-50 text-emerald-600"
+              action={
+                <button
+                  type="button"
+                  onClick={() => setPrivacyOpen(true)}
+                  className="rounded-xl bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700"
+                >
+                  {hi ? "खोलें" : "Open"}
+                </button>
+              }
               last
             />
 
@@ -1553,13 +1593,7 @@ function toggleDarkMode(value) {
 
             <button
               type="button"
-              onClick={() =>
-                showMessage(
-                  hi
-                    ? "Help center जल्द उपलब्ध होगा"
-                    : "Help center will be available soon"
-                )
-              }
+              onClick={() => setHelpOpen(true)}
               className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               <CircleHelp size={16} />
@@ -1570,7 +1604,7 @@ function toggleDarkMode(value) {
 
             <button
               type="button"
-              onClick={logout}
+              onClick={handleLogout}
               className="flex items-center justify-center gap-2 rounded-2xl border border-red-100 bg-white px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50"
             >
               <LogOut size={16} />
@@ -1585,6 +1619,67 @@ function toggleDarkMode(value) {
 
       </div>
 
+      {privacyOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" onClick={() => setPrivacyOpen(false)}>
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{hi ? "प्राइवेसी और सुरक्षा" : "Privacy & security"}</h2>
+                <p className="mt-1 text-xs text-slate-400">{hi ? "आपके खाते और डेटा की सुरक्षा" : "Your account and data protection"}</p>
+              </div>
+              <button type="button" onClick={() => setPrivacyOpen(false)} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">✕</button>
+            </div>
+            <div className="mt-5 space-y-3 text-xs leading-5 text-slate-600">
+              <p><b>{hi ? "🔐 Firebase Login:" : "🔐 Firebase Login:"}</b> {hi ? "आपकी प्रोफ़ाइल आपके Firebase account से जुड़ी है।" : "Your profile is linked to your Firebase account."}</p>
+              <p><b>{hi ? "🛡️ निजी डेटा:" : "🛡️ Personal data:"}</b> {hi ? "प्रोफ़ाइल डेटा user-specific database record में रखा जाता है।" : "Profile data is stored as a user-specific database record."}</p>
+              <p><b>{hi ? "📍 Location:" : "📍 Location:"}</b> {hi ? "GPS केवल तब लिया जाता है जब आप अनुमति देते हैं।" : "GPS is accessed only after you grant permission."}</p>
+              <p><b>{hi ? "🚪 Logout:" : "🚪 Logout:"}</b> {hi ? "Logout करने पर current account session समाप्त हो जाएगा।" : "Logging out ends the current account session."}</p>
+              <p className="rounded-2xl bg-amber-50 p-3 text-amber-700">{hi ? "Aadhaar, bank और अन्य sensitive documents को अभी permanent cloud storage में upload नहीं किया जा रहा है।" : "Aadhaar, bank and other sensitive documents are not currently uploaded to permanent cloud storage."}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {helpOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" onClick={() => setHelpOpen(false)}>
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{hi ? "मदद और सहायता" : "Help & support"}</h2>
+                <p className="mt-1 text-xs text-slate-400">{hi ? "KrishiSetu इस्तेमाल करने की जरूरी जानकारी" : "Important information for using KrishiSetu"}</p>
+              </div>
+              <button type="button" onClick={() => setHelpOpen(false)} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">✕</button>
+            </div>
+            <div className="mt-5 space-y-3">
+              {[
+                hi ? "Profile में अपनी सही जानकारी रखें ताकि recommendations बेहतर रहें।" : "Keep your profile information accurate for better recommendations.",
+                hi ? "Farm page से खेत, फसल, area और location manage करें।" : "Manage farm, crop, area and location from the Farm page.",
+                hi ? "Crop Doctor में साफ crop image upload करें।" : "Upload a clear crop image in Crop Doctor.",
+                hi ? "Soil और Satellite results को खेती के decision के साथ verify करें।" : "Verify Soil and Satellite results before making farming decisions.",
+                hi ? "Aadhaar, bank details और passwords किसी के साथ share न करें।" : "Never share Aadhaar, bank details or passwords with anyone.",
+                hi ? "Login समस्या हो तो Forgot password से password reset करें।" : "For login problems, use Forgot password to reset your password."
+              ].map((item, index) => (
+                <div key={index} className="rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">{item}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .dark-mode .bg-white { background-color: #0f172a !important; }
+        .dark-mode .bg-slate-50 { background-color: #1e293b !important; }
+        .dark-mode .bg-slate-100 { background-color: #334155 !important; }
+        .dark-mode .text-slate-950, .dark-mode .text-slate-900, .dark-mode .text-slate-800, .dark-mode .text-slate-700 { color: #f1f5f9 !important; }
+        .dark-mode .text-slate-600, .dark-mode .text-slate-500 { color: #cbd5e1 !important; }
+        .dark-mode .text-slate-400 { color: #94a3b8 !important; }
+        .dark-mode .border-slate-200, .dark-mode .border-slate-100, .dark-mode .border-slate-200\/80 { border-color: #334155 !important; }
+        .dark-mode input { background-color: #1e293b !important; color: #f1f5f9 !important; border-color: #475569 !important; }
+        .dark-mode .bg-emerald-50 { background-color: #064e3b !important; }
+        .dark-mode .bg-amber-50 { background-color: #451a03 !important; }
+        .dark-mode .bg-blue-50 { background-color: #172554 !important; }
+        .dark-mode .bg-violet-50 { background-color: #2e1065 !important; }
+      `}</style>
     </div>
   );
 }

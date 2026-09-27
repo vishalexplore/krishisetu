@@ -15,12 +15,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "../i18n/LanguageContext";
+import { useAuth } from "../auth/AuthContext";
 
 const API = "https://krishisetu-kb9p.onrender.com";
 
 function Soil() {
   const { language } = useLanguage();
   const hi = language === "hi";
+  const { user } = useAuth();
 
   const [farm, setFarm] = useState(null);
   const [soil, setSoil] = useState(null);
@@ -43,7 +45,21 @@ function Soil() {
       setLoading(true);
       setError("");
 
-      const farmResponse = await fetch(`${API}/farms/`);
+      if (!user) {
+        setFarm(null);
+        setSoil(null);
+        return;
+      }
+
+      const token = await user.getIdToken();
+
+      const headers = {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      };
+
+      const farmResponse = await fetch(`${API}/farms/`, { headers });
+
       if (!farmResponse.ok) throw new Error("farm");
 
       const farms = await farmResponse.json();
@@ -54,10 +70,26 @@ function Soil() {
         return;
       }
 
-      const latestFarm = farms[0];
-      setFarm(latestFarm);
+      const selectedFarmId = localStorage.getItem(
+        `krishisetu-selected-farm-${user.uid}`
+      );
 
-      const soilResponse = await fetch(`${API}/soil/${latestFarm.id}`);
+      const selectedFarm =
+        farms.find(
+          (item) => String(item.id) === String(selectedFarmId)
+        ) ||
+        [...farms].sort(
+          (a, b) =>
+            new Date(b.updated_at || b.created_at) -
+            new Date(a.updated_at || a.created_at)
+        )[0];
+
+      setFarm(selectedFarm);
+
+      const soilResponse = await fetch(
+        `${API}/soil/${selectedFarm.id}`,
+        { headers }
+      );
 
       if (soilResponse.status === 404) {
         setSoil(null);
@@ -89,8 +121,13 @@ function Soil() {
   };
 
   useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     loadSoil();
-  }, []);
+  }, [user]);
 
   const updateField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -99,7 +136,7 @@ function Soil() {
   const saveSoil = async (event) => {
     event.preventDefault();
 
-    if (!farm) return;
+    if (!farm || !user) return;
 
     const params = new URLSearchParams();
     params.set("farm_id", String(farm.id));
@@ -114,13 +151,17 @@ function Soil() {
       setSaving(true);
       setError("");
 
+      const token = await user.getIdToken();
+
       const response = await fetch(`${API}/soil/?${params.toString()}`, {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
       });
 
-      if (!response.ok) {
-        throw new Error("save");
-      }
+      if (!response.ok) throw new Error("save");
 
       const data = await response.json();
       setSoil(data);

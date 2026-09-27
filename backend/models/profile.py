@@ -9,6 +9,7 @@ class Profile(Base):
     __tablename__ = "profiles"
 
     id = Column(Integer, primary_key=True, index=True)
+    firebase_uid = Column(String(128), unique=True, index=True, nullable=False)
 
     name = Column(String(150), nullable=False, default="Farmer")
     mobile = Column(String(20), nullable=True)
@@ -29,3 +30,4 @@ class Profile(Base):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+    

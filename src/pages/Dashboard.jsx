@@ -63,7 +63,11 @@ function Dashboard() {
         return;
       }
 
-      const latestFarm = farms[0];
+      const latestFarm = [...farms].sort(
+        (a, b) =>
+          new Date(b.updated_at || b.created_at) -
+          new Date(a.updated_at || a.created_at)
+      )[0];
       setFarm(latestFarm);
 
       // -----------------------------

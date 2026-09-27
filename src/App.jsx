@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import InstallPrompt from "./components/InstallPrompt";
 
@@ -9,37 +10,66 @@ import Satellite from "./pages/Satellite";
 import CropDoctor from "./pages/CropDoctor";
 import Advisor from "./pages/Advisor";
 import Profile from "./pages/Profile";
+import Admin from "./pages/Admin";
 
 import DashboardLayout from "./layouts/DashboardLayout";
 import { LanguageProvider } from "./i18n/LanguageContext";
+import { AuthProvider } from "./auth/AuthContext";
+import ActivityTracker from "./auth/ActivityTracker";
+
+import Login from "./pages/Login";
+import ProtectedRoute from "./auth/ProtectedRoute";
+import CreateAccount from "./pages/CreateAccount";
+
+import "./dark-mode.css";
 
 function App() {
+  useEffect(() => {
+    const enabled =
+      localStorage.getItem("krishisetu-dark-mode") === "true";
+
+    document.documentElement.classList.toggle("dark-mode", enabled);
+    document.body.classList.toggle("dark-mode", enabled);
+  }, []);
+
   return (
-    <LanguageProvider>
-      <BrowserRouter>
+    <AuthProvider>
+      <ActivityTracker />
 
-        <InstallPrompt />
+      <LanguageProvider>
+        <BrowserRouter>
+          <InstallPrompt />
 
-        <Routes>
-          <Route element={<DashboardLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/farm" element={<Farm />} />
-            <Route path="/weather" element={<Weather />} />
-            <Route path="/soil" element={<Soil />} />
-            <Route path="/satellite" element={<Satellite />} />
-            <Route path="/crop-doctor" element={<CropDoctor />} />
-            <Route path="/advisor" element={<Advisor />} />
-            <Route path="/profile" element={<Profile />} />
-          </Route>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/create-account" element={<CreateAccount />} />
 
-          <Route
-            path="*"
-            element={<Navigate to="/" replace />}
-          />
-        </Routes>
+            <Route
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/farm" element={<Farm />} />
+              <Route path="/weather" element={<Weather />} />
+              <Route path="/soil" element={<Soil />} />
+              <Route path="/satellite" element={<Satellite />} />
+              <Route path="/crop-doctor" element={<CropDoctor />} />
+              <Route path="/advisor" element={<Advisor />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/admin" element={<Admin />} />
+            </Route>
 
-      </BrowserRouter>
-    </LanguageProvider>
+            <Route
+              path="*"
+              element={<Navigate to="/" replace />}
+            />
+          </Routes>
+        </BrowserRouter>
+      </LanguageProvider>
+    </AuthProvider>
   );
 }
 

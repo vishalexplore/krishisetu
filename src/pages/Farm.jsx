@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
   Marker,
   Popup,
+  useMap,
 } from "react-leaflet";
-
 import {
   MapPin,
   Ruler,
@@ -14,198 +14,387 @@ import {
   Plus,
   Navigation,
   Save,
-  Map,
-  CheckCircle2,
-  LocateFixed,
   Wheat,
-  RotateCcw,
+  LocateFixed,
+  CheckCircle2,
+  RefreshCw,
+  MapPinned,
 } from "lucide-react";
-
 import { useLanguage } from "../i18n/LanguageContext";
+import { useAuth } from "../auth/AuthContext";
+
+const API_BASE = "https://krishisetu-kb9p.onrender.com";
 
 const DEFAULT_POSITION = [28.6139, 77.209];
+const DEFAULT_DATE = new Date().toISOString().split("T")[0];
+
+const AREA_UNITS = {
+  acre: {
+    label: "Acre",
+    short: "acre",
+    toAcres: 1,
+  },
+  hectare: {
+    label: "Hectare",
+    short: "ha",
+    toAcres: 2.47105381,
+  },
+  decimal: {
+    label: "Decimal",
+    short: "decimal",
+    toAcres: 0.01,
+  },
+  bigha: {
+    label: "Bigha",
+    short: "bigha",
+    // Common UP estimate; local definitions can vary.
+    toAcres: 0.625,
+  },
+  khata: {
+    label: "Khata / Katha",
+    short: "khata",
+    // Common UP estimate; local definitions can vary.
+    toAcres: 0.03125,
+  },
+};
+
+function MapCenter({ position }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (
+      Array.isArray(position) &&
+      position.length === 2 &&
+      Number.isFinite(position[0]) &&
+      Number.isFinite(position[1])
+    ) {
+      map.flyTo(position, 17, { duration: 0.8 });
+    }
+  }, [map, position]);
+
+  return null;
+}
 
 function Farm() {
-  const { language, t } = useLanguage();
+  const { language } = useLanguage();
+  const { user } = useAuth();
+  const hi = language === "hi";
 
-  const [farmName, setFarmName] = useState("My Wheat Farm");
+  const [farms, setFarms] = useState([]);
+  const [selectedFarmId, setSelectedFarmId] = useState(null);
+
+  const [farmName, setFarmName] = useState("");
   const [crop, setCrop] = useState("Wheat");
-  const [area, setArea] = useState("2.4");
-  const [sowingDate, setSowingDate] = useState("2026-08-26");
-
+  const [area, setArea] = useState("");
+  const [areaUnit, setAreaUnit] = useState("acre");
+  const [sowingDate, setSowingDate] = useState(DEFAULT_DATE);
   const [position, setPosition] = useState(DEFAULT_POSITION);
+  const [gpsAccuracy, setGpsAccuracy] = useState(null);
+  const [locationCaptured, setLocationCaptured] = useState(false);
 
   const [locationLoading, setLocationLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loadingFarm, setLoadingFarm] = useState(true);
+  const [loadingFarms, setLoadingFarms] = useState(true);
+  const [formOpen, setFormOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    const loadFarm = async () => {
-      try {
-        const response = await fetch(
-          "https://krishisetu-kb9p.onrender.com/farms/"
+  const bestAccuracyRef = useRef(Infinity);
+
+  const authHeaders = async (json = false) => {
+    if (!user) {
+      throw new Error("You are not logged in.");
+    }
+
+    const token = await user.getIdToken();
+
+    return {
+      ...(json ? { "Content-Type": "application/json" } : {}),
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
+  const loadFarms = async () => {
+    if (!user) return;
+
+    try {
+      setLoadingFarms(true);
+      setError("");
+
+      const response = await fetch(`${API_BASE}/farms/`, {
+        headers: await authHeaders(),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.detail || "Could not load farms.");
+      }
+
+      const data = await response.json();
+      setFarms(Array.isArray(data) ? data : []);
+
+      if (Array.isArray(data) && data.length > 0) {
+        const savedId = Number(
+          localStorage.getItem(`krishisetu-selected-farm-${user.uid}`)
         );
 
-        if (!response.ok) {
-          throw new Error("Failed to load farms");
-        }
+        const selected =
+          data.find((farm) => farm.id === savedId) || data[0];
 
-        const farms = await response.json();
-
-        if (farms.length > 0) {
-          const farm = farms[0];
-
-          setFarmName(farm.name);
-          setCrop(farm.crop);
-          setArea(String(farm.area_acres));
-          setSowingDate(farm.sowing_date);
-
-          setPosition([
-            farm.latitude,
-            farm.longitude,
-          ]);
-        }
-      } catch (error) {
-        console.error("Load farm error:", error);
-      } finally {
-        setLoadingFarm(false);
+        setSelectedFarmId(selected.id);
+        fillFormFromFarm(selected);
+      } else {
+        setSelectedFarmId(null);
+        setFormOpen(false);
+        resetForm();
       }
-    };
+    } catch (err) {
+      console.error("Load farms error:", err);
+      setError(
+        hi
+          ? "आपके खेत लोड नहीं हो सके।"
+          : "Your farms could not be loaded."
+      );
+    } finally {
+      setLoadingFarms(false);
+    }
+  };
 
-    loadFarm();
-  }, []);
+  useEffect(() => {
+    loadFarms();
+
+  }, [user]);
+
+  const fillFormFromFarm = (farm) => {
+    if (!farm) return;
+
+    setFarmName(farm.name || "");
+    setCrop(farm.crop || "Wheat");
+    setArea(String(farm.area_acres ?? ""));
+    setAreaUnit("acre");
+    setSowingDate(farm.sowing_date || DEFAULT_DATE);
+    setPosition([
+      Number(farm.latitude),
+      Number(farm.longitude),
+    ]);
+    setGpsAccuracy(null);
+    setLocationCaptured(true);
+    setFormOpen(false);
+  };
+
+  const resetForm = () => {
+    setFarmName("");
+    setCrop("Wheat");
+    setArea("");
+    setAreaUnit("acre");
+    setSowingDate(DEFAULT_DATE);
+    setPosition(DEFAULT_POSITION);
+    setGpsAccuracy(null);
+    setLocationCaptured(false);
+    setMessage("");
+    setError("");
+  };
+
+  const startNewFarm = () => {
+    resetForm();
+    setSelectedFarmId(null);
+    setFormOpen(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const selectFarm = (farm) => {
+    setSelectedFarmId(farm.id);
+    localStorage.setItem(
+      `krishisetu-selected-farm-${user.uid}`,
+      String(farm.id)
+    );
+    fillFormFromFarm(farm);
+    setMessage("");
+    setError("");
+  };
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
       alert(
-        language === "hi"
-          ? "इस ब्राउज़र में लोकेशन की सुविधा उपलब्ध नहीं है।"
-          : "Location is not supported by this browser."
+        hi
+          ? "इस ब्राउज़र में GPS उपलब्ध नहीं है।"
+          : "GPS is not supported by this browser."
       );
       return;
     }
 
     setLocationLoading(true);
+    setGpsAccuracy(null);
 
     navigator.geolocation.getCurrentPosition(
       (location) => {
-        setPosition([
-          location.coords.latitude,
-          location.coords.longitude,
-        ]);
+        const { latitude, longitude, accuracy } = location.coords;
+        const nextPosition = [Number(latitude), Number(longitude)];
+
+        setPosition(nextPosition);
+        setGpsAccuracy(Math.round(accuracy || 0));
+        setLocationCaptured(true);
+
+        // Keep the captured coordinates in the current user's draft too.
+        if (user) {
+          localStorage.setItem(
+            `krishisetu-gps-draft-${user.uid}`,
+            JSON.stringify({
+              latitude: nextPosition[0],
+              longitude: nextPosition[1],
+              accuracy: Math.round(accuracy || 0),
+            })
+          );
+        }
 
         setLocationLoading(false);
       },
-      () => {
-        alert(
-          language === "hi"
-            ? "आपकी लोकेशन प्राप्त नहीं हो सकी।"
-            : "Unable to get your location."
-        );
-
+      (geoError) => {
+        console.error("GPS error:", geoError);
         setLocationLoading(false);
+
+        alert(
+          hi
+            ? "GPS location नहीं मिल सकी। Browser location permission Allow करें और GPS ON रखें।"
+            : "Could not get GPS location. Allow browser location permission and keep GPS on."
+        );
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
+        maximumAge: 0,
+        timeout: 20000,
       }
     );
   };
 
+  const areaToAcres = () => {
+    const value = Number(area);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+
+    return value * AREA_UNITS[areaUnit].toAcres;
+  };
+
+  const displayArea = (acres) => {
+    const value = Number(acres);
+    if (!Number.isFinite(value)) return "0";
+
+    const converted = value / AREA_UNITS[areaUnit].toAcres;
+
+    return converted >= 100
+      ? converted.toFixed(0)
+      : converted >= 10
+        ? converted.toFixed(1)
+        : converted.toFixed(2);
+  };
+
   const saveFarm = async () => {
+    if (!user) {
+      alert(hi ? "पहले login करें।" : "Please login first.");
+      return;
+    }
+
     if (!farmName.trim()) {
       alert(
-        language === "hi"
+        hi
           ? "कृपया खेत का नाम दर्ज करें।"
           : "Please enter a farm name."
       );
       return;
     }
 
-    if (!area || Number(area) <= 0) {
+    const acres = areaToAcres();
+
+    if (!acres || acres <= 0) {
       alert(
-        language === "hi"
-          ? "कृपया खेत का सही क्षेत्रफल दर्ज करें।"
+        hi
+          ? "कृपया सही खेत का area दर्ज करें।"
           : "Please enter a valid farm area."
+      );
+      return;
+    }
+
+    if (
+      !locationCaptured ||
+      !Number.isFinite(position[0]) ||
+      !Number.isFinite(position[1])
+    ) {
+      alert(
+        hi
+          ? "पहले खेत की location चुनें।"
+          : "Please set the farm location first."
       );
       return;
     }
 
     try {
       setSaving(true);
+      setMessage("");
+      setError("");
 
-      const response = await fetch(
-        "https://krishisetu-kb9p.onrender.com/farms/",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            name: farmName,
-            crop: crop,
-            area_acres: Number(area),
-            latitude: position[0],
-            longitude: position[1],
-            sowing_date: sowingDate,
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE}/farms/`, {
+        method: "POST",
+        headers: await authHeaders(true),
+        body: JSON.stringify({
+          name: farmName.trim(),
+          crop: crop.trim() || "Wheat",
+          area_acres: Number(acres.toFixed(6)),
+          latitude: Number(position[0]),
+          longitude: Number(position[1]),
+          sowing_date: sowingDate || null,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Backend error:", errorData);
-        throw new Error("Failed to save farm");
+        throw new Error(data?.detail || "Failed to save farm.");
       }
 
-      const savedFarm = await response.json();
+      const savedFarm = data;
 
-      setFarmName(savedFarm.name);
-      setCrop(savedFarm.crop);
-      setArea(String(savedFarm.area_acres));
-      setSowingDate(savedFarm.sowing_date);
-
-      setPosition([
-        savedFarm.latitude,
-        savedFarm.longitude,
+      setFarms((prev) => [
+        savedFarm,
+        ...prev.filter((farm) => farm.id !== savedFarm.id),
       ]);
 
-      alert(
-        language === "hi"
-          ? "खेत सफलतापूर्वक सेव हो गया! 🌱"
-          : "Farm saved successfully! 🌱"
+      setSelectedFarmId(savedFarm.id);
+      localStorage.setItem(
+        `krishisetu-selected-farm-${user.uid}`,
+        String(savedFarm.id)
       );
-    } catch (error) {
-      console.error("Save farm error:", error);
 
-      alert(
-        language === "hi"
-          ? "खेत सेव नहीं हो सका। कृपया जांचें कि backend चल रहा है।"
-          : "Could not save farm. Make sure the backend is running."
+      fillFormFromFarm(savedFarm);
+
+      localStorage.removeItem(`krishisetu-gps-draft-${user.uid}`);
+
+      setMessage(
+        hi
+          ? "खेत सफलतापूर्वक सेव हो गया। 🌱"
+          : "Farm saved successfully. 🌱"
+      );
+      setFormOpen(false);
+    } catch (err) {
+      console.error("Save farm error:", err);
+      setError(
+        hi
+          ? `खेत सेव नहीं हो सका: ${err.message}`
+          : `Could not save farm: ${err.message}`
       );
     } finally {
       setSaving(false);
     }
   };
 
-  const resetFarm = () => {
-    setFarmName("");
-    setCrop("Wheat");
-    setArea("");
+  const selectedFarm =
+    farms.find((farm) => farm.id === selectedFarmId) || null;
 
-    setSowingDate(
-      new Date().toISOString().split("T")[0]
-    );
-
-    setPosition(DEFAULT_POSITION);
-  };
+  const areaInAcres = selectedFarm?.area_acres ?? areaToAcres();
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6">
-
+    <div className="relative z-0 mx-auto max-w-[1400px] space-y-6">
       {/* HEADER */}
-      <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <section className="relative z-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <div className="mb-2 flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -213,563 +402,508 @@ function Farm() {
             </div>
 
             <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-600">
-              {t("farm", "management")}
+              {hi ? "खेत प्रबंधन" : "Farm Management"}
             </span>
           </div>
 
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-            {t("farm", "myFarm")}
+            {hi ? "मेरे खेत" : "My Farms"}
           </h1>
 
-          <p className="mt-1.5 max-w-2xl text-sm text-slate-500">
-            {language === "hi"
-              ? "अपने खेत की जानकारी, फसल और स्थान को एक ही जगह से प्रबंधित करें।"
-              : "Manage your farm details, crop information and location from one place."}
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+            {hi
+              ? "एक से ज्यादा खेत जोड़ें और हर खेत की location, crop और area अलग रखें।"
+              : "Add multiple farms and keep each farm's location, crop and area separate."}
           </p>
         </div>
 
         <button
           type="button"
-          onClick={resetFarm}
-          className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-700"
+          onClick={startNewFarm}
+          className="relative z-20 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-600/15 transition hover:bg-emerald-700"
         >
-          <Plus size={15} />
-          {t("farm", "addFarm")}
+          <Plus size={17} />
+          {hi ? "नया खेत जोड़ें" : "Add Farm"}
         </button>
       </section>
 
-      {/* LOADING */}
-      {loadingFarm && (
-        <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600" />
-
-          {language === "hi"
-            ? "आपके खेत की जानकारी लोड हो रही है..."
-            : "Loading your farm data..."}
+      {/* STATUS */}
+      {message && (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 size={17} />
+          {message}
         </div>
       )}
 
-      {/* SUMMARY */}
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {error && (
+        <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      )}
 
-        <StatCard
-          icon={<Sprout size={18} />}
-          label={t("farm", "currentCrop")}
-          value={crop || (language === "hi" ? "सेट नहीं है" : "Not set")}
-          iconClass="bg-emerald-50 text-emerald-600"
-        />
-
-        <StatCard
-          icon={<Ruler size={18} />}
-          label={t("farm", "farmArea")}
-          value={`${area || "0"} ${language === "hi" ? "एकड़" : "acres"}`}
-          iconClass="bg-sky-50 text-sky-600"
-        />
-
-        <StatCard
-          icon={<CalendarDays size={18} />}
-          label={t("farm", "sowingDate")}
-          value={formatDate(sowingDate, language)}
-          iconClass="bg-amber-50 text-amber-600"
-        />
-
-        <StatCard
-          icon={<MapPin size={18} />}
-          label={
-            language === "hi"
-              ? "खेत के निर्देशांक"
-              : "Farm coordinates"
-          }
-          value={`${position[0].toFixed(3)}, ${position[1].toFixed(3)}`}
-          iconClass="bg-violet-50 text-violet-600"
-        />
-
-      </section>
-
-      {/* MAIN CONTENT */}
-      <section className="grid gap-5 xl:grid-cols-[410px_1fr]">
-
-        {/* FARM DETAILS */}
-        <div className="rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-
-          <div className="border-b border-slate-100 p-5 sm:p-6">
-            <div className="flex items-center gap-3">
-
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                <Sprout size={19} />
-              </div>
-
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
-                  {language === "hi"
-                    ? "खेत प्रोफ़ाइल"
-                    : "Farm profile"}
-                </p>
-
-                <h2 className="mt-0.5 text-lg font-bold text-slate-900">
-                  {language === "hi"
-                    ? "खेत की जानकारी"
-                    : "Farm details"}
-                </h2>
-              </div>
-
-            </div>
+      {/* FARM LIST */}
+      <section className="relative z-10 min-w-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              {hi ? "आपके खेत" : "Your farms"}
+            </p>
+            <h2 className="mt-1 text-lg font-bold text-slate-900">
+              {hi
+                ? `${farms.length} खेत सेव हैं`
+                : `${farms.length} farm${farms.length === 1 ? "" : "s"} saved`}
+            </h2>
           </div>
 
-          <div className="p-5 sm:p-6">
+          <button
+            type="button"
+            onClick={loadFarms}
+            disabled={loadingFarms}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RefreshCw
+              size={14}
+              className={loadingFarms ? "animate-spin" : ""}
+            />
+            {hi ? "Refresh" : "Refresh"}
+          </button>
+        </div>
 
-            <div className="space-y-5">
+        {loadingFarms ? (
+          <div className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-700">
+            {hi ? "खेत लोड हो रहे हैं..." : "Loading your farms..."}
+          </div>
+        ) : farms.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-200 p-6 text-center">
+            <Sprout
+              size={30}
+              className="mx-auto text-emerald-500"
+            />
+            <p className="mt-3 text-sm font-bold text-slate-800">
+              {hi ? "अभी कोई खेत नहीं है" : "No farm added yet"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {hi
+                ? "अपने खेत में खड़े होकर GPS location सेव करें।"
+                : "Stand in your field and save its GPS location."}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {farms.map((farm) => {
+              const active = farm.id === selectedFarmId;
 
-              {/* FARM NAME */}
-              <div>
-                <label className="mb-2 block text-xs font-bold text-slate-700">
-                  {language === "hi"
-                    ? "खेत का नाम"
-                    : "Farm name"}
-                </label>
+              return (
+                <button
+                  key={farm.id}
+                  type="button"
+                  onClick={() => selectFarm(farm)}
+                  className={`text-left rounded-2xl border p-4 transition ${
+                    active
+                      ? "border-emerald-400 bg-emerald-50 shadow-sm"
+                      : "border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/40"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                        <Sprout size={19} />
+                      </div>
 
-                <div className="relative">
-                  <MapPin
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-900">
+                          {farm.name}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {farm.crop}
+                        </p>
+                      </div>
+                    </div>
 
-                  <input
-                    value={farmName}
-                    onChange={(e) => setFarmName(e.target.value)}
-                    placeholder={
-                      language === "hi"
-                        ? "जैसे मेरा गेहूं का खेत"
-                        : "e.g. My Wheat Farm"
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-10 pr-4 text-sm font-medium text-slate-800 transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-                  />
-                </div>
-              </div>
+                    {active && (
+                      <CheckCircle2
+                        size={18}
+                        className="shrink-0 text-emerald-600"
+                      />
+                    )}
+                  </div>
 
-              {/* CROP */}
-              <div>
-                <label className="mb-2 block text-xs font-bold text-slate-700">
-                  {t("farm", "currentCrop")}
-                </label>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="rounded-xl bg-white/80 p-2">
+                      <p className="text-slate-400">
+                        {hi ? "Area" : "Area"}
+                      </p>
+                      <p className="mt-0.5 font-bold text-slate-700">
+                        {farm.area_acres} acre
+                      </p>
+                    </div>
 
-                <div className="relative">
-                  <Sprout
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                    <div className="rounded-xl bg-white/80 p-2">
+                      <p className="text-slate-400">
+                        {hi ? "GPS" : "GPS"}
+                      </p>
+                      <p className="mt-0.5 font-bold text-slate-700">
+                        {Number(farm.latitude).toFixed(4)}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-                  <select
-                    value={crop}
-                    onChange={(e) => setCrop(e.target.value)}
-                    className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-10 pr-10 text-sm font-medium text-slate-800 transition focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-                  >
-                    <option value="Wheat">
-                      {language === "hi" ? "गेहूं" : "Wheat"}
-                    </option>
+      {/* FORM */}
+      {formOpen && (
+        <section className="relative z-10 min-w-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-600">
+                {hi ? "नया खेत" : "New farm"}
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">
+                {hi ? "खेत की जानकारी भरें" : "Add farm details"}
+              </h2>
+            </div>
 
-                    <option value="Rice">
-                      {language === "hi" ? "धान" : "Rice"}
-                    </option>
+            {farms.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFormOpen(false);
+                  if (selectedFarm) fillFormFromFarm(selectedFarm);
+                }}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+              >
+                {hi ? "Cancel" : "Cancel"}
+              </button>
+            )}
+          </div>
 
-                    <option value="Mustard">
-                      {language === "hi" ? "सरसों" : "Mustard"}
-                    </option>
+          <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
+            {/* BASIC DETAILS */}
+            <div className="space-y-4">
+              <Field
+                icon={<MapPin size={16} />}
+                label={hi ? "खेत का नाम" : "Farm name"}
+              >
+                <input
+                  value={farmName}
+                  onChange={(e) => setFarmName(e.target.value)}
+                  placeholder={
+                    hi ? "जैसे मेरा खेत" : "e.g. My Main Farm"
+                  }
+                  className="input"
+                />
+              </Field>
 
-                    <option value="Maize">
-                      {language === "hi" ? "मक्का" : "Maize"}
-                    </option>
+              <Field
+                icon={<Sprout size={16} />}
+                label={hi ? "फसल" : "Crop"}
+              >
+                <select
+                  value={crop}
+                  onChange={(e) => setCrop(e.target.value)}
+                  className="input"
+                >
+                  <option>Wheat</option>
+                  <option>Rice</option>
+                  <option>Sugarcane</option>
+                  <option>Potato</option>
+                  <option>Maize</option>
+                  <option>Mustard</option>
+                  <option>Vegetables</option>
+                  <option>Other</option>
+                </select>
+              </Field>
 
-                    <option value="Potato">
-                      {language === "hi" ? "आलू" : "Potato"}
-                    </option>
-
-                    <option value="Sugarcane">
-                      {language === "hi" ? "गन्ना" : "Sugarcane"}
-                    </option>
-
-                    <option value="Tomato">
-                      {language === "hi" ? "टमाटर" : "Tomato"}
-                    </option>
-
-                    <option value="Cotton">
-                      {language === "hi" ? "कपास" : "Cotton"}
-                    </option>
-
-                    <option value="Other">
-                      {language === "hi" ? "अन्य" : "Other"}
-                    </option>
-                  </select>
-
-                  <ChevronDown />
-                </div>
-              </div>
-
-              {/* AREA */}
-              <div>
-                <label className="mb-2 block text-xs font-bold text-slate-700">
-                  {t("farm", "farmArea")}
-                </label>
-
-                <div className="relative">
-                  <Ruler
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-
+              <Field
+                icon={<Ruler size={16} />}
+                label={hi ? "खेत का area" : "Farm area"}
+              >
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_150px]">
                   <input
                     type="number"
                     min="0"
-                    step="0.1"
+                    step="0.01"
                     value={area}
                     onChange={(e) => setArea(e.target.value)}
-                    placeholder="2.4"
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-10 pr-16 text-sm font-medium text-slate-800 transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+                    placeholder="2.5"
+                    className="input"
                   />
 
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
-                    {language === "hi" ? "एकड़" : "ACRES"}
-                  </span>
+                  <select
+                    value={areaUnit}
+                    onChange={(e) => setAreaUnit(e.target.value)}
+                    className="input"
+                  >
+                    {Object.entries(AREA_UNITS).map(
+                      ([key, unit]) => (
+                        <option key={key} value={key}>
+                          {unit.label}
+                        </option>
+                      )
+                    )}
+                  </select>
                 </div>
-              </div>
 
-              {/* DATE */}
-              <div>
-                <label className="mb-2 block text-xs font-bold text-slate-700">
-                  {t("farm", "sowingDate")}
-                </label>
+                {area && Number(area) > 0 && (
+                  <p className="mt-2 text-[11px] font-medium text-slate-500">
+                    ≈ {areaToAcres().toFixed(3)} acre
+                  </p>
+                )}
 
-                <div className="relative">
-                  <CalendarDays
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {hi
+                    ? "Bigha/Khata का स्थानीय माप जगह के अनुसार बदल सकता है।"
+                    : "Bigha/Khata measurements can vary locally."}
+                </p>
+              </Field>
 
-                  <input
-                    type="date"
-                    value={sowingDate}
-                    onChange={(e) => setSowingDate(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-10 pr-4 text-sm font-medium text-slate-800 transition focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-                  />
-                </div>
-              </div>
+              <Field
+                icon={<CalendarDays size={16} />}
+                label={hi ? "बुवाई की तारीख" : "Sowing date"}
+              >
+                <input
+                  type="date"
+                  value={sowingDate}
+                  onChange={(e) => setSowingDate(e.target.value)}
+                  className="input"
+                />
+              </Field>
 
-              {/* SAVE */}
               <button
                 type="button"
                 onClick={saveFarm}
                 disabled={saving}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-emerald-600/15 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/15 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? (
                   <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-
-                    {language === "hi"
-                      ? "खेत सेव हो रहा है..."
-                      : "Saving farm..."}
+                    <RefreshCw size={17} className="animate-spin" />
+                    {hi ? "सेव हो रहा है..." : "Saving..."}
                   </>
                 ) : (
                   <>
-                    <Save size={16} />
-
-                    {language === "hi"
-                      ? "खेत की जानकारी सेव करें"
-                      : "Save farm details"}
+                    <Save size={17} />
+                    {hi ? "खेत सेव करें" : "Save Farm"}
                   </>
                 )}
               </button>
-
             </div>
 
-            {/* GPS */}
-            <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-
-              <div className="flex items-start gap-3">
-
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
-                  <LocateFixed size={17} />
+            {/* LOCATION */}
+            <div className="relative z-0 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
+              <div className="relative z-[1000] flex min-w-0 flex-col items-stretch gap-3 border-b border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold text-slate-800">
+                    {hi ? "खेत की GPS location" : "Farm GPS location"}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-slate-500">
+                    {hi
+                      ? "खेत में खड़े होकर location लें"
+                      : "Stand in your field and capture location"}
+                  </p>
                 </div>
 
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={useMyLocation}
+                  disabled={locationLoading}
+                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60 sm:w-auto"
+                >
+                  {locationLoading ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <LocateFixed size={14} />
+                  )}
+                  {locationLoading
+                    ? hi
+                      ? "GPS..."
+                      : "Finding..."
+                    : hi
+                      ? "मेरी location"
+                      : "Use my location"}
+                </button>
+              </div>
 
-                  <p className="text-xs font-bold text-emerald-800">
-                    {t("farm", "farmLocation")}
+              <div className="relative z-0 h-[260px] w-full min-w-0 sm:h-[360px] md:h-[420px] lg:h-[450px]">
+                <MapContainer
+                  center={position}
+                  zoom={16}
+                  scrollWheelZoom
+                  className="z-0 h-full w-full min-w-0"
+                >
+                  <TileLayer
+                    attribution='&copy; OpenStreetMap contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+
+                  <MapCenter position={position} />
+
+                  <Marker position={position}>
+                    <Popup>
+                      <div className="min-w-[170px]">
+                        <p className="font-bold">
+                          {farmName || (hi ? "मेरा खेत" : "My Farm")}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {position[0].toFixed(6)},{" "}
+                          {position[1].toFixed(6)}
+                        </p>
+
+                        {gpsAccuracy != null && (
+                          <p className="mt-1 text-xs text-emerald-600">
+                            GPS ±{gpsAccuracy} m
+                          </p>
+                        )}
+                      </div>
+                    </Popup>
+                  </Marker>
+                </MapContainer>
+              </div>
+
+              <div className="relative z-[1000] grid gap-2 border-t border-slate-200 bg-white p-4 sm:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <MapPinned size={13} />
+                    Latitude
+                  </div>
+                  <p className="mt-1 min-w-0 break-all font-mono text-xs font-bold text-slate-700">
+                    {position[0].toFixed(6)}
                   </p>
-
-                  <p className="mt-1 text-[10px] leading-4 text-emerald-700/70">
-                    {language === "hi"
-                      ? "अपने वर्तमान GPS स्थान का उपयोग करके मानचित्र पर खेत की स्थिति अपडेट करें।"
-                      : "Use your current GPS location to update the farm position on the map."}
-                  </p>
-
-                  <button
-                    type="button"
-                    onClick={useMyLocation}
-                    disabled={locationLoading}
-                    className="mt-3 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    <Navigation size={13} />
-
-                    {locationLoading
-                      ? language === "hi"
-                        ? "लोकेशन खोजी जा रही है..."
-                        : "Finding location..."
-                      : t("farm", "locateMe")}
-                  </button>
-
                 </div>
 
-              </div>
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <MapPinned size={13} />
+                    Longitude
+                  </div>
+                  <p className="mt-1 min-w-0 break-all font-mono text-xs font-bold text-slate-700">
+                    {position[1].toFixed(6)}
+                  </p>
+                </div>
 
+                <div className="sm:col-span-2 flex items-center gap-2 text-[10px] font-medium text-slate-500">
+                  <Navigation size={13} className="text-emerald-600" />
+                  {gpsAccuracy != null
+                    ? hi
+                      ? `GPS accuracy लगभग ±${gpsAccuracy} meter`
+                      : `GPS accuracy approximately ±${gpsAccuracy} meters`
+                    : hi
+                      ? "पहले ‘मेरी location’ दबाकर GPS location लें।"
+                      : "Press ‘Use my location’ to capture GPS."}
+                </div>
+              </div>
             </div>
-
-            {/* RESET */}
-            <button
-              type="button"
-              onClick={resetFarm}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 py-2.5 text-[10px] font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-            >
-              <RotateCcw size={13} />
-
-              {language === "hi"
-                ? "फॉर्म साफ करें"
-                : "Clear form"}
-            </button>
-
           </div>
-        </div>
+        </section>
+      )}
 
-        {/* MAP */}
-        <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-
-          <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-
-            <div className="flex items-center gap-3">
-
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
-                <Map size={19} />
-              </div>
-
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
-                  {language === "hi"
-                    ? "स्थान"
-                    : "Location"}
-                </p>
-
-                <h2 className="mt-0.5 text-lg font-bold text-slate-900">
-                  {t("farm", "farmLocation")}
-                </h2>
-
-                <p className="mt-0.5 text-[10px] text-slate-400">
-                  {language === "hi"
-                    ? "अपने खेत की स्थिति देखें।"
-                    : "Select and view your farm position."}
-                </p>
-              </div>
-
-            </div>
-
-            <button
-              type="button"
-              onClick={useMyLocation}
-              disabled={locationLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-2.5 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
-            >
-              <Navigation size={14} />
-
-              {locationLoading
-                ? language === "hi"
-                  ? "लोकेशन खोज रहे हैं..."
-                  : "Locating..."
-                : t("farm", "locateMe")}
-            </button>
-
-          </div>
-
-          {/* MAP */}
-          <div className="h-[400px] w-full sm:h-[500px]">
-
-            <MapContainer
-              center={position}
-              zoom={13}
-              scrollWheelZoom={true}
-              className="h-full w-full"
-            >
-
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-
-              <Marker position={position}>
-                <Popup>
-
-                  <strong>
-                    {farmName ||
-                      (language === "hi"
-                        ? "मेरा खेत"
-                        : "My Farm")}
-                  </strong>
-
-                  <br />
-
-                  {language === "hi"
-                    ? `${getCropHindi(crop)} का खेत`
-                    : `${crop} farm`}
-
-                  <br />
-
-                  {area || "0"}{" "}
-                  {language === "hi"
-                    ? "एकड़"
-                    : "acres"}
-
-                </Popup>
-              </Marker>
-
-            </MapContainer>
-
-          </div>
-
-          {/* MAP FOOTER */}
-          <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-
+      {/* SELECTED FARM SUMMARY */}
+      {!formOpen && selectedFarm && (
+        <section className="relative z-10 min-w-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                {language === "hi"
-                  ? "चयनित निर्देशांक"
-                  : "Selected coordinates"}
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                {hi ? "Selected farm" : "Selected farm"}
               </p>
 
-              <p className="mt-1 font-mono text-xs font-semibold text-slate-700">
-                {position[0].toFixed(6)},{" "}
-                {position[1].toFixed(6)}
+              <h2 className="mt-1 text-xl font-bold text-slate-900">
+                {selectedFarm.name}
+              </h2>
+
+              <p className="mt-1 text-xs text-slate-500">
+                {selectedFarm.crop} ·{" "}
+                {displayArea(selectedFarm.area_acres)}{" "}
+                {AREA_UNITS[areaUnit].short} ·{" "}
+                {selectedFarm.latitude.toFixed(6)},{" "}
+                {selectedFarm.longitude.toFixed(6)}
               </p>
             </div>
 
-            <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-bold text-emerald-600">
-              <CheckCircle2 size={13} />
-
-              {language === "hi"
-                ? "लोकेशन तैयार है"
-                : "Location ready"}
-            </div>
-
+            <button
+              type="button"
+              onClick={() => {
+                fillFormFromFarm(selectedFarm);
+                setFormOpen(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+            >
+              <MapPin size={14} />
+              {hi ? "Location देखें" : "View location"}
+            </button>
           </div>
 
-        </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <InfoCard
+              icon={<Sprout size={17} />}
+              label={hi ? "फसल" : "Crop"}
+              value={selectedFarm.crop}
+            />
 
-      </section>
+            <InfoCard
+              icon={<Ruler size={17} />}
+              label={hi ? "Area" : "Area"}
+              value={`${selectedFarm.area_acres} acre`}
+            />
 
+            <InfoCard
+              icon={<Navigation size={17} />}
+              label="GPS"
+              value={`${selectedFarm.latitude.toFixed(4)}, ${selectedFarm.longitude.toFixed(4)}`}
+            />
+          </div>
+        </section>
+      )}
     </div>
   );
 }
 
-/* DATE FORMAT */
-function formatDate(date, language) {
-  if (!date) {
-    return language === "hi"
-      ? "सेट नहीं है"
-      : "Not set";
-  }
-
-  const parts = date.split("-");
-
-  if (parts.length !== 3) {
-    return date;
-  }
-
-  const [year, month, day] = parts;
-
-  const dateObject = new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day)
-  );
-
-  return dateObject.toLocaleDateString(
-    language === "hi" ? "hi-IN" : "en-IN",
-    {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }
-  );
-}
-
-/* CROP HINDI */
-function getCropHindi(crop) {
-  const crops = {
-    Wheat: "गेहूं",
-    Rice: "धान",
-    Mustard: "सरसों",
-    Maize: "मक्का",
-    Potato: "आलू",
-    Sugarcane: "गन्ना",
-    Tomato: "टमाटर",
-    Cotton: "कपास",
-    Other: "अन्य",
-  };
-
-  return crops[crop] || crop;
-}
-
-/* STAT CARD */
-function StatCard({
-  icon,
-  label,
-  value,
-  iconClass,
-}) {
+function Field({ icon, label, children }) {
   return (
-    <div className="group rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <label className="block">
+      <span className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-700">
+        <span className="text-emerald-600">{icon}</span>
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
 
-      <div className="flex items-center justify-between">
-
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconClass}`}
-        >
-          {icon}
-        </div>
-
-        <CheckCircle2
-          size={15}
-          className="text-emerald-400"
-        />
-
+function StatCard({ icon, label, value, iconClass }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div
+        className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconClass}`}
+      >
+        {icon}
       </div>
-
-      <p className="mt-3 text-[10px] font-semibold text-slate-400">
+      <p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-slate-400">
         {label}
       </p>
-
-      <p className="mt-1 truncate text-base font-bold text-slate-900">
+      <p className="mt-1 truncate text-sm font-bold text-slate-900">
         {value}
       </p>
-
     </div>
   );
 }
 
-/* SELECT ARROW */
-function ChevronDown() {
+function InfoCard({ icon, label, value }) {
   return (
-    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
-    </span>
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <div className="flex items-center gap-2 text-emerald-600">
+        {icon}
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+          {label}
+        </span>
+      </div>
+      <p className="mt-2 truncate text-sm font-bold text-slate-800">
+        {value}
+      </p>
+    </div>
   );
 }
 

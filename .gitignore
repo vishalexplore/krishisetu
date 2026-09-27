@@ -9,3 +9,4 @@ backend/.pytest_cache/
 *.pyc
 
 backend/venv/
+backend/google-service-account.json
