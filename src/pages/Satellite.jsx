@@ -14,8 +14,8 @@ function NDVIMap({ farm }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <div className="p-4">
+    <div className="relative z-0 isolate overflow-hidden rounded-2xl border bg-white shadow-sm">
+      <div className="relative z-10 p-4">
         <h2 className="font-bold text-gray-900">
           Crop Health Map
         </h2>
@@ -25,12 +25,15 @@ function NDVIMap({ farm }) {
         </p>
       </div>
 
-      <div className="h-[350px] w-full">
+      <div className="relative z-0 h-[350px] w-full isolate">
         <MapContainer
           center={[farm.latitude, farm.longitude]}
           zoom={15}
           scrollWheelZoom={false}
-          className="h-full w-full"
+          className="relative z-0 h-full w-full"
+          style={{
+            zIndex: 0,
+          }}
         >
           <TileLayer
             attribution="&copy; OpenStreetMap contributors"
@@ -53,7 +56,7 @@ function NDVIMap({ farm }) {
         </MapContainer>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 p-4 text-xs">
+      <div className="relative z-10 flex flex-wrap items-center gap-4 p-4 text-xs">
         <span className="flex items-center gap-1">
           <span className="h-3 w-3 rounded-full bg-red-700" />
           Low
@@ -126,9 +129,9 @@ export default function Satellite() {
   }, [selectedFarmId]);
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className="relative z-0 space-y-6 p-4 sm:p-6">
       {/* Header */}
-      <div>
+      <div className="relative z-10">
         <p className="text-sm font-medium text-green-600">
           Google Earth Engine
         </p>
@@ -143,7 +146,7 @@ export default function Satellite() {
       </div>
 
       {/* Farm Selector */}
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="relative z-10 rounded-2xl border bg-white p-5 shadow-sm">
         <label className="text-sm font-semibold text-gray-700">
           Select Farm
         </label>
@@ -163,7 +166,7 @@ export default function Satellite() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+        <div className="relative z-10 rounded-2xl border border-red-200 bg-red-50 p-5">
           <h2 className="font-semibold text-red-700">
             Satellite data unavailable
           </h2>
@@ -176,7 +179,7 @@ export default function Satellite() {
 
       {/* Loading */}
       {loadingSatellite && (
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="relative z-10 rounded-2xl border bg-white p-6 shadow-sm">
           <p className="text-gray-600">
             Analyzing satellite imagery...
           </p>
@@ -191,7 +194,7 @@ export default function Satellite() {
       {!loadingSatellite && farm && (
         <>
           {/* Farm Information */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="relative z-10 rounded-2xl border bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">
               Farm
             </p>
@@ -211,7 +214,7 @@ export default function Satellite() {
 
           {/* NDVI */}
           {farm.analysis_available && (
-            <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="relative z-10 rounded-2xl border bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm text-gray-500">
@@ -260,7 +263,7 @@ export default function Satellite() {
 
           {/* Details */}
           {farm.analysis_available && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="relative z-10 grid grid-cols-2 gap-4">
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <p className="text-xs text-gray-500">
                   Latest Image
@@ -305,7 +308,7 @@ export default function Satellite() {
 
           {/* No Analysis */}
           {!farm.analysis_available && (
-            <div className="rounded-2xl border bg-yellow-50 p-5">
+            <div className="relative z-10 rounded-2xl border bg-yellow-50 p-5">
               <p className="font-semibold text-yellow-800">
                 Satellite analysis unavailable
               </p>
@@ -317,7 +320,7 @@ export default function Satellite() {
           )}
 
           {/* Source */}
-          <div className="rounded-2xl border border-green-100 bg-green-50 p-4">
+          <div className="relative z-10 rounded-2xl border border-green-100 bg-green-50 p-4">
             <p className="text-sm font-semibold text-green-800">
               Real Satellite Analysis
             </p>
@@ -337,7 +340,7 @@ export default function Satellite() {
       )}
 
       {/* Disclaimer */}
-      <p className="text-xs leading-5 text-gray-500">
+      <p className="relative z-10 text-xs leading-5 text-gray-500">
         Satellite-based NDVI is an indicator of vegetation
         condition and should be combined with field
         observations before making important agricultural
