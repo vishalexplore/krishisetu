@@ -6,8 +6,6 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { useAuth } from "../auth/AuthContext";
-
 const API_BASE_URL = "https://krishisetu-kb9p.onrender.com";
 
 function NDVIMap({ farm }) {
@@ -76,81 +74,29 @@ function NDVIMap({ farm }) {
 }
 
 export default function Satellite() {
-  const { user } = useAuth();
+  const [farms] = useState([
+    {
+      id: 1,
+      name: "Khadda ka farm",
+      crop: "Sugarcane",
+    },
+  ]);
 
-  const [farms, setFarms] = useState([]);
-  const [selectedFarmId, setSelectedFarmId] = useState("");
+  const [selectedFarmId, setSelectedFarmId] = useState("1");
   const [farm, setFarm] = useState(null);
 
-  const [loadingFarms, setLoadingFarms] = useState(true);
   const [loadingSatellite, setLoadingSatellite] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadFarms = async () => {
-      try {
-        if (!user) return;
-
-        setLoadingFarms(true);
-        setError("");
-
-        const token = await user.getIdToken();
-
-        const response = await fetch(`${API_BASE_URL}/farms/`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => null);
-
-          throw new Error(
-            errorData?.detail ||
-              `Farms could not be loaded (${response.status}).`
-          );
-        }
-
-        const data = await response.json();
-
-        setFarms(Array.isArray(data) ? data : []);
-
-        if (Array.isArray(data) && data.length > 0) {
-          setSelectedFarmId(String(data[0].id));
-        }
-      } catch (err) {
-        console.error("Farm loading error:", err);
-        setError(err.message);
-        setFarms([]);
-      } finally {
-        setLoadingFarms(false);
-      }
-    };
-
-    loadFarms();
-  }, [user]);
-
-  useEffect(() => {
     const loadSatelliteData = async () => {
       try {
-        if (!user || !selectedFarmId) return;
-
         setLoadingSatellite(true);
         setError("");
-
-        const token = await user.getIdToken();
+        setFarm(null);
 
         const response = await fetch(
-          `${API_BASE_URL}/satellite/farm/${selectedFarmId}`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/json",
-            },
-          }
+          `${API_BASE_URL}/satellite/farm/${selectedFarmId}?days=60`
         );
 
         if (!response.ok) {
@@ -158,7 +104,7 @@ export default function Satellite() {
 
           throw new Error(
             errorData?.detail ||
-              "Satellite data could not be loaded."
+              `Satellite data could not be loaded (${response.status}).`
           );
         }
 
@@ -174,37 +120,14 @@ export default function Satellite() {
       }
     };
 
-    loadSatelliteData();
-  }, [user, selectedFarmId]);
-
-  if (loadingFarms) {
-    return (
-      <div className="p-6">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          Loading farms...
-        </div>
-      </div>
-    );
-  }
-
-  if (farms.length === 0) {
-    return (
-      <div className="p-6">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-gray-900">
-            No farm found
-          </h2>
-
-          <p className="mt-2 text-sm text-gray-500">
-            Please add a farm first.
-          </p>
-        </div>
-      </div>
-    );
-  }
+    if (selectedFarmId) {
+      loadSatelliteData();
+    }
+  }, [selectedFarmId]);
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
+      {/* Header */}
       <div>
         <p className="text-sm font-medium text-green-600">
           Google Earth Engine
@@ -219,6 +142,7 @@ export default function Satellite() {
         </p>
       </div>
 
+      {/* Farm Selector */}
       <div className="rounded-2xl border bg-white p-5 shadow-sm">
         <label className="text-sm font-semibold text-gray-700">
           Select Farm
@@ -237,6 +161,7 @@ export default function Satellite() {
         </select>
       </div>
 
+      {/* Error */}
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
           <h2 className="font-semibold text-red-700">
@@ -249,6 +174,7 @@ export default function Satellite() {
         </div>
       )}
 
+      {/* Loading */}
       {loadingSatellite && (
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
           <p className="text-gray-600">
@@ -261,8 +187,10 @@ export default function Satellite() {
         </div>
       )}
 
+      {/* Satellite Result */}
       {!loadingSatellite && farm && (
         <>
+          {/* Farm Information */}
           <div className="rounded-2xl border bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">
               Farm
@@ -278,8 +206,10 @@ export default function Satellite() {
             </p>
           </div>
 
+          {/* REAL NDVI MAP */}
           <NDVIMap farm={farm} />
 
+          {/* NDVI */}
           {farm.analysis_available && (
             <div className="rounded-2xl border bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-4">
@@ -328,6 +258,7 @@ export default function Satellite() {
             </div>
           )}
 
+          {/* Details */}
           {farm.analysis_available && (
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -372,6 +303,7 @@ export default function Satellite() {
             </div>
           )}
 
+          {/* No Analysis */}
           {!farm.analysis_available && (
             <div className="rounded-2xl border bg-yellow-50 p-5">
               <p className="font-semibold text-yellow-800">
@@ -384,6 +316,7 @@ export default function Satellite() {
             </div>
           )}
 
+          {/* Source */}
           <div className="rounded-2xl border border-green-100 bg-green-50 p-4">
             <p className="text-sm font-semibold text-green-800">
               Real Satellite Analysis
@@ -403,6 +336,7 @@ export default function Satellite() {
         </>
       )}
 
+      {/* Disclaimer */}
       <p className="text-xs leading-5 text-gray-500">
         Satellite-based NDVI is an indicator of vegetation
         condition and should be combined with field
