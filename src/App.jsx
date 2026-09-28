@@ -10,12 +10,10 @@ import Satellite from "./pages/Satellite";
 import CropDoctor from "./pages/CropDoctor";
 import Advisor from "./pages/Advisor";
 import Profile from "./pages/Profile";
-import Admin from "./pages/Admin";
 
 import DashboardLayout from "./layouts/DashboardLayout";
 import { LanguageProvider } from "./i18n/LanguageContext";
 import { AuthProvider } from "./auth/AuthContext";
-import ActivityTracker from "./auth/ActivityTracker";
 
 import Login from "./pages/Login";
 import ProtectedRoute from "./auth/ProtectedRoute";
@@ -34,7 +32,7 @@ function App() {
 
   return (
     <AuthProvider>
-      <ActivityTracker />
+      
 
       <LanguageProvider>
         <BrowserRouter>
@@ -59,7 +57,7 @@ function App() {
               <Route path="/crop-doctor" element={<CropDoctor />} />
               <Route path="/advisor" element={<Advisor />} />
               <Route path="/profile" element={<Profile />} />
-              <Route path="/admin" element={<Admin />} />
+              
             </Route>
 
             <Route

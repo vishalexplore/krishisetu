@@ -217,24 +217,40 @@ function toggleDarkMode(value) {
     }
   }
 
-  async function fetchFarms() {
-    try {
-      const response = await fetch(`${API_BASE}/farms/`);
+ async function fetchFarms() {
+  try {
+    if (!user) return;
 
-      if (!response.ok) {
-        throw new Error("Unable to fetch farms");
-      }
+    const token = await user.getIdToken();
 
-      const data = await response.json();
+    const response = await fetch(`${API_BASE}/farms/`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+    });
 
-      if (Array.isArray(data)) {
-        setFarms(data);
-      }
-    } catch (error) {
-      console.error("Farm fetch error:", error);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+
+      throw new Error(
+        errorData?.detail || `Unable to fetch farms (${response.status})`
+      );
+    }
+
+    const data = await response.json();
+
+    if (Array.isArray(data)) {
+      setFarms(data);
+    } else {
       setFarms([]);
     }
+  } catch (error) {
+    console.error("Farm fetch error:", error);
+    setFarms([]);
   }
+}
 
   async function saveProfile() {
     try {

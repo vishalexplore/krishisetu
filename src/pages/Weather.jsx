@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { useLanguage } from "../i18n/LanguageContext";
+import { useAuth } from "../auth/AuthContext";
 
 const API_BASE = "https://krishisetu-kb9p.onrender.com";
 
@@ -157,7 +158,8 @@ function getFieldActivity(wind, rainProbability, language) {
 }
 
 function Weather() {
-  const { language, t } = useLanguage();
+  const { language } = useLanguage();
+  const { user } = useAuth();
 
   const [farm, setFarm] = useState(null);
   const [weather, setWeather] = useState(null);
@@ -166,6 +168,8 @@ function Weather() {
   const [error, setError] = useState("");
 
   async function loadWeather(showRefresh = false) {
+    if (!user) return;
+
     try {
       setError("");
 
@@ -175,8 +179,18 @@ function Weather() {
         setLoading(true);
       }
 
+      const token = await user.getIdToken();
+
+      const authHeaders = {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      };
+
       const farmsResponse = await fetch(
-        `${API_BASE}/farms/`
+        `${API_BASE}/farms/`,
+        {
+          headers: authHeaders,
+        }
       );
 
       if (!farmsResponse.ok) {
@@ -197,7 +211,21 @@ function Weather() {
         );
       }
 
-      const selectedFarm = farms[0];
+      let selectedFarm = farms[0];
+
+      const savedFarmId = localStorage.getItem(
+        `krishisetu-selected-farm-${user.uid}`
+      );
+
+      if (savedFarmId) {
+        const matchingFarm = farms.find(
+          (item) => String(item.id) === String(savedFarmId)
+        );
+
+        if (matchingFarm) {
+          selectedFarm = matchingFarm;
+        }
+      }
 
       setFarm(selectedFarm);
 
@@ -239,8 +267,10 @@ function Weather() {
   }
 
   useEffect(() => {
+    if (!user) return;
+
     loadWeather();
-  }, []);
+  }, [user]);
 
   if (loading) {
     return (
@@ -265,7 +295,6 @@ function Weather() {
     return (
       <div className="mx-auto max-w-2xl py-12">
         <div className="rounded-3xl border border-red-100 bg-white p-7 text-center shadow-sm">
-
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-500">
             <AlertCircle size={24} />
           </div>
@@ -291,7 +320,6 @@ function Weather() {
               ? "फिर से कोशिश करें"
               : "Try again"}
           </button>
-
         </div>
       </div>
     );
@@ -351,13 +379,9 @@ function Weather() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">
-
-      {/* HEADER */}
       <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-
         <div>
           <div className="mb-2 flex items-center gap-2">
-
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
               <CloudSun size={16} />
             </div>
@@ -367,7 +391,6 @@ function Weather() {
                 ? "लाइव मौसम"
                 : "Live Weather"}
             </span>
-
           </div>
 
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">
@@ -377,10 +400,7 @@ function Weather() {
           </h1>
 
           <div className="mt-1.5 flex items-center gap-2 text-sm text-slate-500">
-            <MapPin
-              size={15}
-              className="text-sky-500"
-            />
+            <MapPin size={15} className="text-sky-500" />
 
             <span>
               {farm?.name ||
@@ -403,9 +423,7 @@ function Weather() {
         >
           <RefreshCw
             size={15}
-            className={
-              refreshing ? "animate-spin" : ""
-            }
+            className={refreshing ? "animate-spin" : ""}
           />
 
           {refreshing
@@ -416,29 +434,22 @@ function Weather() {
             ? "मौसम रिफ्रेश करें"
             : "Refresh weather"}
         </button>
-
       </section>
 
-      {/* CURRENT WEATHER */}
       <section className="relative overflow-hidden rounded-[28px] bg-sky-700 p-5 text-white shadow-lg shadow-sky-900/10 sm:p-7">
-
         <div className="absolute -right-16 -top-20 h-60 w-60 rounded-full bg-white/10" />
         <div className="absolute -bottom-32 right-20 h-64 w-64 rounded-full bg-sky-500/30" />
 
         <div className="relative grid gap-7 lg:grid-cols-[1fr_1.35fr] lg:items-center">
-
           <div>
-
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-bold text-sky-100">
               <CurrentIcon size={13} />
-
               {language === "hi"
                 ? "लाइव स्थिति"
                 : "LIVE CONDITIONS"}
             </div>
 
             <div className="mt-5 flex items-center gap-4 sm:gap-5">
-
               <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/10 sm:h-20 sm:w-20 sm:rounded-3xl">
                 <CurrentIcon
                   size={42}
@@ -447,9 +458,7 @@ function Weather() {
               </div>
 
               <div>
-
                 <div className="flex items-start">
-
                   <span className="text-5xl font-bold tracking-tight sm:text-6xl">
                     {Math.round(
                       current.temperature_2m
@@ -459,18 +468,15 @@ function Weather() {
                   <span className="mt-1.5 text-xl font-medium sm:mt-2 sm:text-2xl">
                     °C
                   </span>
-
                 </div>
 
                 <p className="mt-1 text-xs font-medium text-sky-100 sm:text-sm">
                   {currentInfo.condition}
                 </p>
-
               </div>
             </div>
 
             <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-sky-100">
-
               <span>
                 {language === "hi"
                   ? "महसूस हो रहा है"
@@ -491,14 +497,10 @@ function Weather() {
                   ? "खेत की स्थिति"
                   : "field conditions"}
               </span>
-
             </div>
-
           </div>
 
-          {/* WEATHER STATS */}
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-
             <WeatherStat
               icon={<Droplets size={17} />}
               label={
@@ -540,25 +542,18 @@ function Weather() {
               }
               value={`${current.precipitation} mm`}
             />
-
           </div>
-
         </div>
       </section>
 
-      {/* FARMING ADVISORY */}
       <section className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
-
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
             <Umbrella size={21} />
           </div>
 
           <div className="min-w-0 flex-1">
-
             <div className="flex flex-wrap items-center gap-2">
-
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-600">
                 {language === "hi"
                   ? "कृषि सलाह"
@@ -567,12 +562,10 @@ function Weather() {
 
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-bold text-emerald-600">
                 <CheckCircle2 size={11} />
-
                 {language === "hi"
                   ? "लाइव मौसम पर आधारित"
                   : "Live weather based"}
               </span>
-
             </div>
 
             <h2 className="mt-1 text-base font-bold text-slate-900 sm:text-lg">
@@ -584,18 +577,12 @@ function Weather() {
                 ? `आज बारिश की अधिकतम संभावना ${todayRain}% है। सिंचाई या खेत में काम करने से पहले इस लाइव मौसम की जानकारी को अपनी फसल और मिट्टी की स्थिति के साथ देखें।`
                 : `Today's maximum rain probability is ${todayRain}%. Use this live forecast together with your crop and soil conditions before irrigation or field work.`}
             </p>
-
           </div>
-
         </div>
-
       </section>
 
-      {/* FORECAST */}
       <section>
-
         <div className="mb-4 flex items-end justify-between">
-
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
               {language === "hi"
@@ -612,16 +599,13 @@ function Weather() {
 
           <div className="hidden items-center gap-1.5 text-xs font-medium text-slate-400 sm:flex">
             <Eye size={14} />
-
             {language === "hi"
               ? "दैनिक जानकारी"
               : "Daily outlook"}
           </div>
-
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-
           {forecast.map((item, index) => {
             const Icon = item.icon;
 
@@ -634,9 +618,7 @@ function Weather() {
                     : "border-slate-200/80"
                 }`}
               >
-
                 <div className="flex items-center justify-between">
-
                   <p className="text-sm font-bold text-slate-800">
                     {item.day}
                   </p>
@@ -648,11 +630,9 @@ function Weather() {
                         : "NOW"}
                     </span>
                   )}
-
                 </div>
 
                 <div className="my-4 flex items-center justify-between">
-
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-500">
                     <Icon
                       size={26}
@@ -661,7 +641,6 @@ function Weather() {
                   </div>
 
                   <div className="text-right">
-
                     <p className="text-xl font-bold text-slate-900">
                       {item.high}
                     </p>
@@ -669,9 +648,7 @@ function Weather() {
                     <p className="mt-0.5 text-xs font-medium text-slate-400">
                       {item.low}
                     </p>
-
                   </div>
-
                 </div>
 
                 <p className="text-[11px] font-medium text-slate-500">
@@ -679,29 +656,21 @@ function Weather() {
                 </p>
 
                 <div className="mt-4 flex items-center gap-1.5 border-t border-slate-100 pt-3 text-[10px] font-bold text-sky-600">
-
                   <Droplets size={12} />
 
                   {item.rain}{" "}
                   {language === "hi"
                     ? "बारिश"
                     : "rain"}
-
                 </div>
-
               </div>
             );
           })}
-
         </div>
-
       </section>
 
-      {/* FIELD CONDITIONS */}
       <section>
-
         <div className="mb-4">
-
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-600">
             {language === "hi"
               ? "खेत की स्थिति"
@@ -713,11 +682,9 @@ function Weather() {
               ? "आज के उपयोगी संकेतक"
               : "Today's useful indicators"}
           </h2>
-
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-
           <InfoCard
             icon={<Thermometer size={20} />}
             iconClass="bg-orange-50 text-orange-500"
@@ -785,16 +752,11 @@ function Weather() {
                 : "Based on rain and wind"
             }
           />
-
         </div>
-
       </section>
 
-      {/* SUN INFORMATION */}
       <section>
-
         <div className="mb-4">
-
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-orange-500">
             {language === "hi"
               ? "दिन की रोशनी"
@@ -806,11 +768,9 @@ function Weather() {
               ? "सूर्योदय और सूर्यास्त"
               : "Sunrise & sunset"}
           </h2>
-
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-
           <SunCard
             icon={<Sunrise size={22} />}
             iconClass="bg-orange-50 text-orange-500"
@@ -842,20 +802,15 @@ function Weather() {
                 : "End of daylight"
             }
           />
-
         </div>
-
       </section>
 
-      {/* WEATHER NOTE */}
       <div className="flex gap-3 rounded-2xl border border-slate-200/80 bg-slate-50 p-4">
-
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
           <Leaf size={17} />
         </div>
 
         <div>
-
           <p className="text-xs font-bold text-slate-700">
             {language === "hi"
               ? "लाइव मौसम पर आधारित खेती"
@@ -867,11 +822,8 @@ function Weather() {
               ? "मौसम की जानकारी आपके सेव किए गए खेत के निर्देशांकों से प्राप्त की जाती है। सिंचाई और खेत के काम की योजना बनाते समय इसे अपनी वास्तविक मिट्टी और फसल की स्थिति के साथ उपयोग करें।"
               : "Weather data is fetched using your saved farm coordinates. Use it together with your actual soil and crop conditions when planning irrigation and field activities."}
           </p>
-
         </div>
-
       </div>
-
     </div>
   );
 }
@@ -879,7 +831,6 @@ function Weather() {
 function WeatherStat({ icon, label, value }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/10 p-3.5 backdrop-blur-sm">
-
       <div className="flex items-center gap-2 text-sky-100">
         {icon}
 
@@ -891,7 +842,6 @@ function WeatherStat({ icon, label, value }) {
       <p className="mt-2 text-sm font-bold">
         {value}
       </p>
-
     </div>
   );
 }
@@ -905,9 +855,7 @@ function InfoCard({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-5">
-
       <div className="flex items-start justify-between">
-
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconClass}`}
         >
@@ -918,7 +866,6 @@ function InfoCard({
           size={15}
           className="text-slate-300"
         />
-
       </div>
 
       <p className="mt-4 text-[10px] font-medium text-slate-400">
@@ -932,7 +879,6 @@ function InfoCard({
       <p className="mt-1 text-[10px] text-slate-400">
         {detail}
       </p>
-
     </div>
   );
 }
@@ -946,9 +892,7 @@ function SunCard({
 }) {
   return (
     <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
-
       <div className="flex items-center gap-4">
-
         <div
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconClass}`}
         >
@@ -956,7 +900,6 @@ function SunCard({
         </div>
 
         <div>
-
           <p className="text-[10px] font-medium text-slate-400">
             {label}
           </p>
@@ -968,16 +911,13 @@ function SunCard({
           <p className="mt-0.5 text-[10px] text-slate-400">
             {detail}
           </p>
-
         </div>
-
       </div>
 
       <CalendarDays
         size={17}
         className="text-slate-300"
       />
-
     </div>
   );
 }

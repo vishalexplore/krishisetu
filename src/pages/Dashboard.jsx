@@ -19,11 +19,13 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../i18n/LanguageContext";
+import { useAuth } from "../auth/AuthContext";
 
 const API_BASE = "https://krishisetu-kb9p.onrender.com";
 
 function Dashboard() {
   const { language, t } = useLanguage();
+  const { user } = useAuth();
   const hi = language === "hi";
 
   const [farm, setFarm] = useState(null);
@@ -35,19 +37,32 @@ function Dashboard() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    if (user) {
+      loadDashboard();
+    }
+  }, [user]);
 
   const loadDashboard = async () => {
+    if (!user) return;
+
     try {
       setLoading(true);
       setError("");
+
+      const token = await user.getIdToken();
+
+      const authHeaders = {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      };
 
       // -----------------------------
       // FARM
       // -----------------------------
 
-      const farmResponse = await fetch(`${API_BASE}/farms/`);
+      const farmResponse = await fetch(`${API_BASE}/farms/`, {
+        headers: authHeaders,
+      });
 
       if (!farmResponse.ok) {
         throw new Error("Could not load farm data");
@@ -68,6 +83,7 @@ function Dashboard() {
           new Date(b.updated_at || b.created_at) -
           new Date(a.updated_at || a.created_at)
       )[0];
+
       setFarm(latestFarm);
 
       // -----------------------------
@@ -75,35 +91,39 @@ function Dashboard() {
       // -----------------------------
 
       try {
-  const weatherUrl =
-    `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${encodeURIComponent(latestFarm.latitude)}` +
-    `&longitude=${encodeURIComponent(latestFarm.longitude)}` +
-    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m` +
-    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset` +
-    `&timezone=auto` +
-    `&forecast_days=7`;
+        const weatherUrl =
+          `https://api.open-meteo.com/v1/forecast` +
+          `?latitude=${encodeURIComponent(latestFarm.latitude)}` +
+          `&longitude=${encodeURIComponent(latestFarm.longitude)}` +
+          `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m` +
+          `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset` +
+          `&timezone=auto` +
+          `&forecast_days=7`;
 
-  const weatherResponse = await fetch(weatherUrl);
+        const weatherResponse = await fetch(weatherUrl);
 
-  if (weatherResponse.ok) {
-    const weatherData = await weatherResponse.json();
-    setWeather(weatherData);
-  } else {
-    console.error("Weather API error:", weatherResponse.status);
-    setWeather(null);
-  }
-} catch (weatherError) {
-  console.error("Weather error:", weatherError);
-  setWeather(null);
-}
+        if (weatherResponse.ok) {
+          const weatherData = await weatherResponse.json();
+          setWeather(weatherData);
+        } else {
+          console.error("Weather API error:", weatherResponse.status);
+          setWeather(null);
+        }
+      } catch (weatherError) {
+        console.error("Weather error:", weatherError);
+        setWeather(null);
+      }
+
       // -----------------------------
       // SOIL
       // -----------------------------
 
       try {
         const soilResponse = await fetch(
-          `${API_BASE}/soil/${latestFarm.id}`
+          `${API_BASE}/soil/${latestFarm.id}`,
+          {
+            headers: authHeaders,
+          }
         );
 
         if (soilResponse.ok) {
@@ -123,7 +143,10 @@ function Dashboard() {
 
       try {
         const satelliteResponse = await fetch(
-          `${API_BASE}/satellite/farm/${latestFarm.id}?days=60`
+          `${API_BASE}/satellite/farm/${latestFarm.id}?days=60`,
+          {
+            headers: authHeaders,
+          }
         );
 
         if (satelliteResponse.ok) {
@@ -351,8 +374,7 @@ function Dashboard() {
 
             <p className="mt-2 max-w-xl text-sm leading-6 text-emerald-50/80">
               {farm.name} · {farm.crop} · {farm.area_acres}{" "}
-              {hi ? "एकड़" : "acres"}.
-              {" "}
+              {hi ? "एकड़" : "acres"}.{" "}
               {hi
                 ? "मौसम, मिट्टी और satellite data के साथ।"
                 : "With weather, soil and satellite data."}
@@ -394,9 +416,7 @@ function Dashboard() {
 
                 <p className="mt-0.5 text-[9px] font-bold uppercase tracking-widest text-emerald-100">
                   {satellite?.analysis_available
-                    ? hi
-                      ? "Satellite active"
-                      : "Satellite active"
+                    ? "Satellite active"
                     : hi
                       ? "Analysis"
                       : "Analysis"}
@@ -473,7 +493,7 @@ function Dashboard() {
             icon={Sprout}
             title={hi ? "फसल" : "Crop"}
             value={farm.crop || "—"}
-            status={hi ? "Farm data" : "Farm data"}
+            status="Farm data"
           />
 
           <DataStatusCard
@@ -488,9 +508,7 @@ function Dashboard() {
             }
             status={
               soil
-                ? hi
-                  ? "Soil test available"
-                  : "Soil test available"
+                ? "Soil test available"
                 : hi
                   ? "Test required"
                   : "Test required"
@@ -523,7 +541,7 @@ function Dashboard() {
             }
             status={
               satellite?.latest_image_date
-                ? `${hi ? "Latest" : "Latest"} ${satellite.latest_image_date}`
+                ? `Latest ${satellite.latest_image_date}`
                 : hi
                   ? "उपलब्ध नहीं"
                   : "Unavailable"
@@ -719,12 +737,12 @@ function Dashboard() {
 
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <MiniValue
-                    label={hi ? "Images" : "Images"}
+                    label="Images"
                     value={satellite.image_count}
                   />
 
                   <MiniValue
-                    label={hi ? "Latest" : "Latest"}
+                    label="Latest"
                     value={
                       satellite.latest_image_date || "—"
                     }
@@ -785,6 +803,7 @@ function Dashboard() {
                 <SoilMini label="N" value={soil.nitrogen} />
                 <SoilMini label="P" value={soil.phosphorus} />
                 <SoilMini label="K" value={soil.potassium} />
+
                 <SoilMini
                   label={hi ? "नमी" : "Moisture"}
                   value={
@@ -793,6 +812,7 @@ function Dashboard() {
                       : "—"
                   }
                 />
+
                 <SoilMini
                   label="OC"
                   value={soil.organic_carbon}

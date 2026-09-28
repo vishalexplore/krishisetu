@@ -7,7 +7,6 @@ from models.farm import Farm
 from models.soil import SoilTest
 from models.crop_diagnosis import CropDiagnosis
 from models.profile import Profile
-from models.user_activity import UserActivity
 
 from routes.farms import router as farm_router
 from routes.soil import router as soil_router
@@ -16,7 +15,6 @@ from routes.weather import router as weather_router
 from routes.crop_doctor import router as crop_doctor_router
 from routes.satellite import router as satellite_router
 from routes.profile import router as profile_router
-from routes.admin import router as admin_router
 
 
 app = FastAPI(
@@ -38,11 +36,9 @@ app.add_middleware(
 )
 
 
-# Create database tables
 Base.metadata.create_all(bind=engine)
 
 
-# Register routes
 app.include_router(farm_router)
 app.include_router(advisor_router)
 app.include_router(weather_router)
@@ -50,7 +46,6 @@ app.include_router(soil_router)
 app.include_router(crop_doctor_router)
 app.include_router(satellite_router)
 app.include_router(profile_router)
-app.include_router(admin_router)
 
 
 @app.get("/")
