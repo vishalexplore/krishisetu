@@ -10,3 +10,4 @@ backend/.pytest_cache/
 
 backend/venv/
 backend/google-service-account.json
+backend/firebase-service-account.json
