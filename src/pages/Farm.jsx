@@ -106,7 +106,7 @@ function Farm() {
       throw new Error("You are not logged in.");
     }
 
-    const token = await user.getIdToken();
+   const token = await user.getIdToken(true);
 
     return {
       ...(json ? { "Content-Type": "application/json" } : {}),
