@@ -6,18 +6,19 @@ from firebase_admin import credentials
 
 
 if not firebase_admin._apps:
-    service_account_file = os.path.join(
-        os.path.dirname(__file__),
-        "firebase-service-account.json",
-    )
+    firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
 
-    if not os.path.exists(service_account_file):
+    if not firebase_json:
         raise RuntimeError(
-            "firebase-service-account.json not found"
+            "FIREBASE_SERVICE_ACCOUNT_JSON environment variable not found"
         )
 
-    with open(service_account_file, "r", encoding="utf-8") as file:
-        service_account_info = json.load(file)
+    try:
+        service_account_info = json.loads(firebase_json)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            "FIREBASE_SERVICE_ACCOUNT_JSON contains invalid JSON"
+        ) from error
 
     if service_account_info.get("project_id") != "krishisetu-ecee4":
         raise RuntimeError(
